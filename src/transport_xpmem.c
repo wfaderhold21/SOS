@@ -101,6 +101,25 @@ shmem_transport_xpmem_startup(void)
                                          sizeof(struct shmem_transport_xpmem_peer_info_t));
     if (NULL == shmem_transport_xpmem_peers) return 1;
 
+    /* allocate required nr of heaps                *
+     * start with 2 and grow exponentially?         */
+    for (i = 0; i < num_on_node; i++) {
+        int j = 0;
+
+        shmem_transport_xpmem_peers[i].heap_apid = 
+                           (xpmem_apid_t *) malloc(sizeof(xpmem_apid_t *) * 2);
+        shmem_transport_xpmem_peers[i].heap_attach_ptr = 
+                                            (void **) malloc(sizeof(void *)*2);
+        shmem_transport_xpmem_peers[i].heap_ptr = 
+                                            (void **) malloc(sizeof(void *)*2);
+        
+        for (j = 0; j < 2; j++) {
+            shmem_transport_xpmem_peers[i].heap_apid[j] = NULL;
+            shmem_transport_xpmem_peers[i].heap_attach_ptr[j] = NULL;
+            shmem_transport_xpmem_peers[i].heap_ptr[j] = NULL;
+        }
+    }
+
     /* get local peer info and map into our address space ... */
     for (i = 0 ; i < shmem_internal_num_pes; ++i) {
         peer_num = shmem_runtime_get_node_rank(i);
@@ -109,7 +128,7 @@ shmem_transport_xpmem_startup(void)
         if (shmem_internal_my_pe == i) {
             shmem_transport_xpmem_peers[peer_num].data_ptr =
                 shmem_internal_data_base;
-            shmem_transport_xpmem_peers[peer_num].heap_ptr =
+            shmem_transport_xpmem_peers[peer_num].heap_ptr[0] =
                 shmem_internal_heap_base;
         } else {
             ret = shmem_runtime_get(i, "xpmem-segids", &info, sizeof(struct share_info_t));
@@ -139,26 +158,26 @@ shmem_transport_xpmem_startup(void)
             shmem_transport_xpmem_peers[peer_num].data_ptr =
                 (char*) shmem_transport_xpmem_peers[peer_num].data_attach_ptr + info.data_off;
 
-            shmem_transport_xpmem_peers[peer_num].heap_apid =
+            shmem_transport_xpmem_peers[peer_num].heap_apid[0] =
                 xpmem_get(info.heap_seg, XPMEM_RDWR, XPMEM_PERMIT_MODE, (void*)0666);
-            if (shmem_transport_xpmem_peers[peer_num].heap_apid < 0) {
+            if (shmem_transport_xpmem_peers[peer_num].heap_apid[0] < 0) {
                 RETURN_ERROR_MSG("could not get heap apid: %s\n",
                                  shmem_util_strerror(errno, errmsg, 256));
                 return 1;
             }
 
-            addr.apid = shmem_transport_xpmem_peers[peer_num].heap_apid;
+            addr.apid = shmem_transport_xpmem_peers[peer_num].heap_apid[0];
             addr.offset = 0;
 
-            shmem_transport_xpmem_peers[peer_num].heap_attach_ptr =
+            shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[0] =
                 xpmem_attach(addr, info.heap_len, NULL);
-            if ((size_t) shmem_transport_xpmem_peers[peer_num].heap_ptr == XPMEM_MAXADDR_SIZE) {
+            if ((size_t) shmem_transport_xpmem_peers[peer_num].heap_ptr[0] == XPMEM_MAXADDR_SIZE) {
                 RETURN_ERROR_MSG("could not get data segment: %s\n",
                                  shmem_util_strerror(errno, errmsg, 256));
                 return 1;
             }
-            shmem_transport_xpmem_peers[peer_num].heap_ptr =
-                (char*) shmem_transport_xpmem_peers[peer_num].heap_attach_ptr + info.heap_off;
+            shmem_transport_xpmem_peers[peer_num].heap_ptr[0] =
+                (char*) shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[0] + info.heap_off;
         }
     }
 
@@ -185,12 +204,12 @@ shmem_transport_xpmem_fini(void)
                 xpmem_release(shmem_transport_xpmem_peers[peer_num].data_apid);
             }
 
-            if (NULL != shmem_transport_xpmem_peers[peer_num].heap_ptr) {
+            if (NULL != shmem_transport_xpmem_peers[peer_num].heap_ptr[0]) {
                 xpmem_detach(shmem_transport_xpmem_peers[peer_num].heap_attach_ptr);
             }
 
-            if (0 != shmem_transport_xpmem_peers[peer_num].heap_apid) {
-                xpmem_release(shmem_transport_xpmem_peers[peer_num].heap_apid);
+            if (0 != shmem_transport_xpmem_peers[peer_num].heap_apid[0]) {
+                xpmem_release(shmem_transport_xpmem_peers[peer_num].heap_apid[0]);
             }
         }
         free(shmem_transport_xpmem_peers);

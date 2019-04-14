@@ -402,3 +402,47 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemalign(size_t alignment, size_t size)
 {
     return shmem_align(alignment, size);
 }
+
+/**** Malloc with hints interfaces ****/
+#ifdef WITH_SHARP
+#include <sharp.h>
+
+void * shmemx_malloc_with_hints(size_t size, long hints)
+{
+    sharp_allocator_info_params info_obj;
+    sharp_hint_t sharp_hints;
+    sharp_allocator_obj_t * a_obj;
+    void * ret = NULL;
+
+    /* do we have a method to alloc memory on the nic? */
+    if (hints == SHMEM_HINT_NONE || hints == SHMEM_HINT_DEVICE_NIC_MEM) {
+        return shmem_malloc(size);
+    }
+
+    if (hints == SHMEM_HINT_DEVICE_GPU_MEM || hints == SHMEM_HINT_HIGH_BW_MEM) {
+        sharp_hints |= SHARP_HINT_GPU;
+    } else if (hints == SHMEM_HINT_LOW_LAT_MEM) {
+        sharp_hints |= SHARP_HINT_CPU;
+    }
+
+    if (hints == SHMEM_HINT_NEAR_NIC_MEM) {
+        sharp_hints |= SHARP_HINT_LATENCY_OPT;
+    }
+    info_obj.allocator_hints = sharp_hints;
+
+    a_obj = sharp_init_allocator_obj(&info_obj);
+    ret = sharp_allocator_alloc(a_obj, size);
+   
+    // need to wire up here
+    #ifdef USE_XPMEM
+    
+    #endif
+
+    return ret;
+}
+#else
+void * shmemx_malloc_with_hints(size_t size, long hints)
+{
+    return NULL;
+}
+#endif

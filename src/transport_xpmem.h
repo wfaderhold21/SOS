@@ -22,11 +22,12 @@
 
 struct shmem_transport_xpmem_peer_info_t {
     xpmem_apid_t data_apid;
-    xpmem_apid_t heap_apid;
+    xpmem_apid_t *heap_apid;
     void *data_attach_ptr;
-    void *heap_attach_ptr;
+    void **heap_attach_ptr;
     void *data_ptr;
-    void *heap_ptr;
+    void **heap_ptr;
+    int nr_heaps;
 };
 
 extern struct shmem_transport_xpmem_peer_info_t *shmem_transport_xpmem_peers;
@@ -54,7 +55,7 @@ extern struct shmem_transport_xpmem_peer_info_t *shmem_transport_xpmem_peers;
                 (char*) shmem_transport_xpmem_peers[rank].data_ptr;     \
         } else {                                                        \
             ptr = (char*) target - (char*) shmem_internal_heap_base +   \
-                (char*) shmem_transport_xpmem_peers[rank].heap_ptr;     \
+                (char*) shmem_transport_xpmem_peers[rank].heap_ptr[0];     \
         }                                                               \
     } while (0)
 #endif
@@ -91,7 +92,7 @@ shmem_transport_xpmem_put(void *target, const void *source, size_t len,
                         (uintptr_t) target);
     }
 #endif
-
+    printf("[debug] put called pe: %d noderank: %d\n", pe, noderank);
     memcpy(remote_ptr, source, len);
 }
 
