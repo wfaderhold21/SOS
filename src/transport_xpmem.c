@@ -126,8 +126,9 @@ shmem_transport_xpmem_startup(void)
         if (-1 == peer_num) continue;
 
         if (shmem_internal_my_pe == i) {
-            shmem_transport_xpmem_peers[peer_num].data_ptr =
-                shmem_internal_data_base;
+//            shmem_transport_xpmem_peers[peer_num].data_ptr =
+//                shmem_internal_data_base;
+//            shmem_
             shmem_transport_xpmem_peers[peer_num].heap_ptr[0] =
                 shmem_internal_heap_base;
         } else {

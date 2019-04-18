@@ -44,6 +44,15 @@ extern long shmem_internal_data_length;
 
 extern unsigned int shmem_internal_rand_seed;
 
+struct memory_spaces {
+    uint64_t base;
+    size_t   size;
+};
+
+extern struct memory_spaces * spaces;
+extern size_t nr_spaces;
+extern size_t nr_used_spaces; 
+
 #define SHMEM_INTERNAL_HEAP_OVERHEAD (1024*1024)
 #define SHMEM_INTERNAL_DIAG_STRLEN 1024
 #define SHMEM_INTERNAL_DIAG_WRAPLEN 72

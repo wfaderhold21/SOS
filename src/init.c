@@ -68,6 +68,10 @@ int shmem_internal_thread_level;
 
 unsigned int shmem_internal_rand_seed;
 
+struct memory_spaces * spaces;
+size_t nr_spaces;
+size_t nr_used_spaces;
+
 #ifdef ENABLE_THREADS
 shmem_internal_mutex_t shmem_internal_mutex_alloc;
 shmem_internal_mutex_t shmem_internal_mutex_rand_r;
@@ -433,6 +437,14 @@ shmem_internal_init(int tl_requested, int *tl_provided)
 
     atexit(shmem_internal_shutdown_atexit);
     shmem_internal_initialized = 1;
+
+    nr_spaces = 32;
+    spaces = (struct memory_spaces *)malloc(sizeof(struct memory_spaces) * nr_spaces);
+    spaces[0].base = (uint64_t) shmem_internal_heap_base;
+    spaces[0].size = shmem_internal_heap_length;
+    spaces[1].base = (uint64_t) shmem_internal_data_base;
+    spaces[1].size = shmem_internal_data_length;
+    nr_used_spaces = 2;
 
     /* finish up */
 #ifndef USE_PMIX

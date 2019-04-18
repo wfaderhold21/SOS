@@ -20,6 +20,8 @@
 #include <inttypes.h>
 #include <xpmem.h>
 
+#include <shmem_internal.h>
+
 struct shmem_transport_xpmem_peer_info_t {
     xpmem_apid_t data_apid;
     xpmem_apid_t *heap_apid;
@@ -31,6 +33,7 @@ struct shmem_transport_xpmem_peer_info_t {
 };
 
 extern struct shmem_transport_xpmem_peer_info_t *shmem_transport_xpmem_peers;
+//extern struct memory_spaces * spaces;
 
 #ifdef ENABLE_ERROR_CHECKING
 #define XPMEM_GET_REMOTE_ACCESS(target, rank, ptr)                      \
@@ -48,6 +51,12 @@ extern struct shmem_transport_xpmem_peer_info_t *shmem_transport_xpmem_peers;
         }                                                               \
     } while (0)
 #else
+/*    do {                                                                \
+        if ((void *) target > shmem_internal_heap_base &&               \
+            (void *) target <                                           \
+                (shmem_internal_heap_base + shmem_internal_heap_length)) { \
+            ptr = (char *
+*/
 #define XPMEM_GET_REMOTE_ACCESS(target, rank, ptr)                      \
     do {                                                                \
         if ((void*) target < shmem_internal_heap_base) {                \
@@ -59,6 +68,22 @@ extern struct shmem_transport_xpmem_peer_info_t *shmem_transport_xpmem_peers;
         }                                                               \
     } while (0)
 #endif
+
+static inline void * _remote_access(const uint64_t target, int pe)
+{
+    int i = 0;
+    void * addr = NULL;
+
+    for (i = 0; i < nr_spaces; i++) {
+        if (target >= spaces[i].base && target < (spaces[i].base + spaces[i].size)) {
+            size_t offset = target - spaces[i].base;
+            // bug here.. need to redefine the heap_ptr...
+            addr = (void *) (shmem_transport_xpmem_peers[pe].heap_ptr[i] + offset);
+            break;
+        }
+    }
+    return addr;
+}
 
 int shmem_transport_xpmem_init(void);
 
@@ -83,9 +108,10 @@ void
 shmem_transport_xpmem_put(void *target, const void *source, size_t len,
                           int pe, int noderank)
 {
-    char *remote_ptr;
+    void *remote_ptr;
 
-    XPMEM_GET_REMOTE_ACCESS(target, noderank, remote_ptr);
+    remote_ptr = _remote_access((uint64_t) target, pe);
+//    XPMEM_GET_REMOTE_ACCESS(target, noderank, remote_ptr);
 #ifdef ENABLE_ERROR_CHECKING
     if (NULL == remote_ptr) {
         RAISE_ERROR_MSG("target (0x%"PRIXPTR") outside of symmetric areas\n",
@@ -102,9 +128,10 @@ void
 shmem_transport_xpmem_get(void *target, const void *source, size_t len,
                           int pe, int noderank)
 {
-    char *remote_ptr;
+    void *remote_ptr;
 
-    XPMEM_GET_REMOTE_ACCESS(source, noderank, remote_ptr);
+    remote_ptr = _remote_access((uint64_t) source, pe);
+    //XPMEM_GET_REMOTE_ACCESS(source, noderank, remote_ptr);
 #ifdef ENABLE_ERROR_CHECKING
     if (NULL == remote_ptr) {
         RAISE_ERROR_MSG("target (0x%"PRIXPTR") outside of symmetric areas\n",
