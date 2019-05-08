@@ -27,14 +27,14 @@
 #include "shmem_comm.h"
 #include "runtime.h"
 
-struct share_info_t {
+/*struct share_info_t {
     xpmem_segid_t data_seg;
     size_t data_len;
     size_t data_off;
     xpmem_segid_t heap_seg;
     size_t heap_len;
     size_t heap_off;
-};
+};*/
 
 struct shmem_transport_xpmem_peer_info_t *shmem_transport_xpmem_peers = NULL;
 static struct share_info_t my_info;

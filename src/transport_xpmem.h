@@ -22,6 +22,15 @@
 
 #include <shmem_internal.h>
 
+struct share_info_t {
+    xpmem_segid_t data_seg;
+    size_t data_len;
+    size_t data_off;
+    xpmem_segid_t heap_seg;
+    size_t heap_len;
+    size_t heap_off;
+};
+
 struct shmem_transport_xpmem_peer_info_t {
     xpmem_apid_t data_apid;
     xpmem_apid_t *heap_apid;
@@ -74,11 +83,14 @@ static inline void * _remote_access(const uint64_t target, int pe)
     int i = 0;
     void * addr = NULL;
 
-    for (i = 0; i < nr_spaces; i++) {
+    for (i = 0; i < nr_used_spaces; i++) {
         if (target >= spaces[i].base && target < (spaces[i].base + spaces[i].size)) {
             size_t offset = target - spaces[i].base;
-            // bug here.. need to redefine the heap_ptr...
-            addr = (void *) (shmem_transport_xpmem_peers[pe].heap_ptr[i] + offset);
+            if (i) {
+                addr = (void *) (shmem_transport_xpmem_peers[pe].heap_ptr[i-1] + offset);
+            } else {
+                addr = (void *) (shmem_transport_xpmem_peers[pe].data_ptr + offset);
+            }    
             break;
         }
     }
@@ -118,7 +130,7 @@ shmem_transport_xpmem_put(void *target, const void *source, size_t len,
                         (uintptr_t) target);
     }
 #endif
-    printf("[debug] put called pe: %d noderank: %d\n", pe, noderank);
+    //printf("[debug] put called pe: %d noderank: %d\n", pe, noderank);
     memcpy(remote_ptr, source, len);
 }
 

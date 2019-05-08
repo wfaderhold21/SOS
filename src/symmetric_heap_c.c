@@ -404,15 +404,18 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemalign(size_t alignment, size_t size)
 }
 
 /**** Malloc with hints interfaces ****/
-#ifdef WITH_SHARP
-#include <sharp.h>
+//#ifdef USE_SHARP
+#include <sharp/sharp.h>
 
-void * shmemx_malloc_with_hints(size_t size, long hints)
+void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hints)
 {
-    sharp_allocator_info_params info_obj;
+    sharp_allocator_info_params_t info_obj;
     sharp_hint_t sharp_hints;
     sharp_allocator_obj_t * a_obj;
     void * ret = NULL;
+    struct share_info_t part_info;
+    
+    printf("[debug] malloc_with_hints: size %lu and hints %d\n", size, hints);
 
     /* do we have a method to alloc memory on the nic? */
     if (hints == SHMEM_HINT_NONE || hints == SHMEM_HINT_DEVICE_NIC_MEM) {
@@ -435,14 +438,55 @@ void * shmemx_malloc_with_hints(size_t size, long hints)
    
     // need to wire up here
     #ifdef USE_XPMEM
-    
+    // xpmem_make
+    part_info.heap_seg = xpmem_make(ret, size, XPMEM_PERMIT_MODE, (void *)0666);
+    part_info.heap_off = 0;
+    part_info.heap_len = size;
+
+    char name[32];
+    int err;
+    int peer_num;
+    int i;
+    sprintf(name, "xpmem-segid%lu", nr_used_spaces);
+    shmem_runtime_put (name, &part_info, sizeof(struct share_info_t));
+    // exchange
+    for (i = 0; i < shmem_internal_num_pes; i++) {
+        peer_num = shmem_runtime_get_node_rank(i);
+        struct xpmem_addr addr;
+        if (-1 == peer_num)
+            continue;
+
+        if (shmem_internal_my_pe == i) {
+            shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces - 1] =
+                ret;
+        } else {
+            err = shmem_runtime_get(i, name, &part_info, sizeof(struct share_info_t));
+            if (0 != err) {
+                RETURN_ERROR_MSG("runtime_get failed: %d\n", err);
+                return NULL;
+            }
+
+            shmem_transport_xpmem_peers[peer_num].heap_apid[nr_used_spaces - 1] =
+                xpmem_get(part_info.heap_seg, XPMEM_RDWR, XPMEM_PERMIT_MODE, (void *)0666);
+            addr.apid = shmem_transport_xpmem_peers[peer_num].heap_apid[nr_used_spaces - 1]; 
+            addr.offset = 0;
+
+            shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces - 1] = 
+                xpmem_attach(addr, part_info.heap_len, NULL);
+            shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces - 1] =
+                (char *) shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces - 1];
+        }
+    }
+    // xpmem_get
+    // xpmem_attach
+
     #endif
 
     return ret;
 }
-#else
+/*#else
 void * shmemx_malloc_with_hints(size_t size, long hints)
 {
     return NULL;
 }
-#endif
+#endif*/

@@ -334,6 +334,20 @@ OPAL_CHECK_OFI([ofi],
     [transport_ofi="yes"],
     [transport_ofi="no"])
 
+AC_ARG_WITH(sharp,
+    [AS_HELP_STRING(
+        [--with-sharp],
+        [enable SharP UMA (default: disabled)]
+    )],
+    [],
+    [with_sharp=no])    
+
+if test -n "$with_sharp"; then
+    P_CFLAGS=$CFLAGS
+    CFLAGS="-I$with_sharp/include -I$with_sharp/include/sharp"
+fi
+AM_CONDITIONAL([USE_SHARP], [test "$with_sharp" != "no"])
+
 # If both OFI and portals4 requested, user needs to choose one:
 if test -n "$with_ofi" -a "$with_ofi" != "no" -a -n "$with_portals4" -a "$with_portals4" != "no" ; then
     AC_MSG_ERROR([Cannot choose both OFI and portals4 transports, see --help for details])

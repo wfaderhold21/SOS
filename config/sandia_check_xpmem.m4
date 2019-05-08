@@ -22,11 +22,11 @@ AC_DEFUN([SANDIA_CHECK_XPMEM], [
   AS_IF([test ! -z "$with_xpmem" -a "$with_xpmem" != "yes"],
     [CPPFLAGS="$CPPFLAGS -I$with_xpmem/include"
      XPMEM_CPPFLAGS="-I$with_xpmem/include"
-     AS_IF([test -d "$with_with_xpmem/lib64"],
-             [LDFLAGS="$LDFLAGS -L$with_xpmem/lib64"
-              XPMEM_LDFLAGS="-L$with_xpmem/lib64"],
+     AS_IF([test -d "$with_with_xpmem/lib"],
              [LDFLAGS="$LDFLAGS -L$with_xpmem/lib"
-              XPMEM_LDFLAGS="-L$with_xpmem/lib"])])
+              XPMEM_LDFLAGS="-L$with_xpmem/lib"],
+             [LDFLAGS="$LDFLAGS -L$with_xpmem/lib64"
+              XPMEM_LDFLAGS="-L$with_xpmem/lib64"])])
 
   AS_IF([test "$happy" = "yes"], 
     [AC_CHECK_HEADERS([xpmem.h], [], [happy=no])])
