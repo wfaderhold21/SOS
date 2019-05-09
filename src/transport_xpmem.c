@@ -107,13 +107,13 @@ shmem_transport_xpmem_startup(void)
         int j = 0;
 
         shmem_transport_xpmem_peers[i].heap_apid = 
-                           (xpmem_apid_t *) malloc(sizeof(xpmem_apid_t *) * 2);
+                           (xpmem_apid_t *) malloc(sizeof(xpmem_apid_t *) * 4);
         shmem_transport_xpmem_peers[i].heap_attach_ptr = 
-                                            (void **) malloc(sizeof(void *)*2);
+                                            (void **) malloc(sizeof(void *)*4);
         shmem_transport_xpmem_peers[i].heap_ptr = 
-                                            (void **) malloc(sizeof(void *)*2);
+                                            (void **) malloc(sizeof(void *)*4);
         
-        for (j = 0; j < 2; j++) {
+        for (j = 0; j < 4; j++) {
             shmem_transport_xpmem_peers[i].heap_apid[j] = NULL;
             shmem_transport_xpmem_peers[i].heap_attach_ptr[j] = NULL;
             shmem_transport_xpmem_peers[i].heap_ptr[j] = NULL;

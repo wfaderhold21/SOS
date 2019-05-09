@@ -407,6 +407,7 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemalign(size_t alignment, size_t size)
 //#ifdef USE_SHARP
 //#include <sharp/sharp.h>
 #include <sharp.h>
+#include <mpi.h>
 
 int is_initialized = 0;
 
@@ -418,6 +419,12 @@ int sharp_init(void) {
 void sharp_finalize(void) {
     sharp_destroy_node_info();
 }
+
+#define FIND_BASE(ptr, page_size) ((char*) (((uintptr_t) ptr / page_size) * page_size))
+#define FIND_LEN(ptr, len, page_size) ((((char*) ptr - FIND_BASE(ptr, page_size) + len - 1) / \
+                                        page_size + 1) * page_size)
+
+
 
 void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hints)
 {
@@ -462,13 +469,26 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
     #ifdef USE_XPMEM
     // xpmem_make
     int i = shmem_internal_my_pe;
-    part_info.heap_seg = xpmem_make(ret, size, XPMEM_PERMIT_MODE, (void *)0666);
-    part_info.heap_off = 0;
-    part_info.heap_len = size;
+    long page_size = sysconf(_SC_PAGESIZE);
+    char *base;
+    size_t len;
+    base = FIND_BASE(ret, page_size);
+    len = FIND_LEN(ret, size, page_size);
+
+    part_info.heap_seg = xpmem_make(base, len, XPMEM_PERMIT_MODE, (void *)0666);
+    if (part_info.heap_seg == -1) {
+        printf("make failed\n");
+        return NULL;
+    }
+    part_info.heap_off = (char *)ret - base;
+    part_info.heap_len = len;
+
+    printf("[%d] my segment is %lx\n", i, part_info.heap_seg);
    
     // use an MPI All gather here... 
 
-    char name[32];
+    MPI_Allgather(&part_info, sizeof(part_info), MPI_CHAR, part_info_array, sizeof(part_info), MPI_CHAR, MPI_COMM_WORLD);
+/*    char name[32];
     int err;
     int peer_num;
     sprintf(name, "xpmem-segid%lu", nr_used_spaces);
@@ -480,37 +500,52 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
         printf("runtime put passed: %s\n", name);
     }
 
-    shmem_barrier_all();
+    shmem_barrier_all();*/
     // exchange
     for (i = 0; i < shmem_internal_num_pes; i++) {
-        peer_num = shmem_runtime_get_node_rank(i);
+        int peer_num = shmem_runtime_get_node_rank(i);
         struct xpmem_addr addr;
         if (-1 == peer_num)
             continue;
 
         if (shmem_internal_my_pe == i) {
-            shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces - 1] =
+            shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces-1] =
                 ret;
         } else {
-            err = shmem_runtime_get(i, name, &part_info, sizeof(struct share_info_t));
+            /*err = shmem_runtime_get(i, name, &part_info, sizeof(struct share_info_t));
             if (0 != err) {
                 RETURN_ERROR_MSG("runtime_get failed: %d\n", err);
                 return NULL;
+            }*/
+
+            memcpy(&part_info, &part_info_array[i], sizeof(part_info));
+
+            printf("[%d] %d's heap_seg is %lx\n", shmem_internal_my_pe, i, part_info.heap_seg);
+
+            shmem_transport_xpmem_peers[peer_num].heap_apid[nr_used_spaces-1] =
+                xpmem_get(part_info.heap_seg, 
+                          XPMEM_RDWR, 
+                          XPMEM_PERMIT_MODE, 
+                          (void *)0666);
+            addr.apid = shmem_transport_xpmem_peers[peer_num].heap_apid[nr_used_spaces-1]; 
+            addr.offset = 0;
+            if (addr.apid < 0) {
+                printf("!!! %d FAILED TO GET XPMEM !!!\n", shmem_internal_my_pe);
+                return NULL;
             }
 
-            shmem_transport_xpmem_peers[peer_num].heap_apid[nr_used_spaces - 1] =
-                xpmem_get(part_info.heap_seg, XPMEM_RDWR, XPMEM_PERMIT_MODE, (void *)0666);
-            addr.apid = shmem_transport_xpmem_peers[peer_num].heap_apid[nr_used_spaces - 1]; 
-            addr.offset = 0;
-
-            shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces - 1] = 
+            shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces-1] = 
                 xpmem_attach(addr, part_info.heap_len, NULL);
-            shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces - 1] =
-                (char *) shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces - 1];
+            printf("[%d] peer %d addr: 0x%lx\n", shmem_internal_my_pe, i, shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces-1]); 
+            shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces-1] =
+                (char *) shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces-1] + part_info.heap_off;
         }
     }
     // xpmem_get
     // xpmem_attach
+    spaces[nr_used_spaces].base = ret;
+    spaces[nr_used_spaces].size = size;
+    nr_used_spaces++;
 
     #endif
 
