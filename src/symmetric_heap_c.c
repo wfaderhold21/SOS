@@ -405,7 +405,19 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemalign(size_t alignment, size_t size)
 
 /**** Malloc with hints interfaces ****/
 //#ifdef USE_SHARP
-#include <sharp/sharp.h>
+//#include <sharp/sharp.h>
+#include <sharp.h>
+
+int is_initialized = 0;
+
+int sharp_init(void) {
+    is_initialized = 1;
+    return sharp_create_node_info();
+}
+
+void sharp_finalize(void) {
+    sharp_destroy_node_info();
+}
 
 void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hints)
 {
@@ -414,7 +426,12 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
     sharp_allocator_obj_t * a_obj;
     void * ret = NULL;
     struct share_info_t part_info;
+    struct share_info_t * part_info_array;
     
+    if (!is_initialized) {
+        sharp_init();
+    }
+
     printf("[debug] malloc_with_hints: size %lu and hints %d\n", size, hints);
 
     /* do we have a method to alloc memory on the nic? */
@@ -432,23 +449,38 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
         sharp_hints |= SHARP_HINT_LATENCY_OPT;
     }
     info_obj.allocator_hints = sharp_hints;
+    info_obj.allocator_constraints = 0;
 
     a_obj = sharp_init_allocator_obj(&info_obj);
     ret = sharp_allocator_alloc(a_obj, size);
-   
+    printf("%d: ret: %p\n", shmem_internal_my_pe, ret);
+
+    part_info_array = (struct share_info_t *) malloc(sizeof(struct share_info_t) * shmem_internal_num_pes); 
+
+
     // need to wire up here
     #ifdef USE_XPMEM
     // xpmem_make
+    int i = shmem_internal_my_pe;
     part_info.heap_seg = xpmem_make(ret, size, XPMEM_PERMIT_MODE, (void *)0666);
     part_info.heap_off = 0;
     part_info.heap_len = size;
+   
+    // use an MPI All gather here... 
 
     char name[32];
     int err;
     int peer_num;
-    int i;
     sprintf(name, "xpmem-segid%lu", nr_used_spaces);
-    shmem_runtime_put (name, &part_info, sizeof(struct share_info_t));
+    err = shmem_runtime_put (name, &part_info, sizeof(struct share_info_t));
+    if (0 != err) { 
+        RETURN_ERROR_MSG("runtime_put failed: %d\n", err);
+        return NULL;
+    } else {
+        printf("runtime put passed: %s\n", name);
+    }
+
+    shmem_barrier_all();
     // exchange
     for (i = 0; i < shmem_internal_num_pes; i++) {
         peer_num = shmem_runtime_get_node_rank(i);
@@ -485,8 +517,10 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
     return ret;
 }
 /*#else
-void * shmemx_malloc_with_hints(size_t size, long hints)
+void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hints)
 {
+    printf("I was called when I shouldn't be...\n");
+    fflush(stdout);
     return NULL;
 }
 #endif*/
