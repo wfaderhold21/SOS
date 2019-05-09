@@ -409,6 +409,8 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemalign(size_t alignment, size_t size)
 #include <sharp.h>
 #include <mpi.h>
 
+extern struct fid_domain * shmem_transport_ofi_domainfd;
+extern struct fid_mr ** shmem_transport_ofi_target_heap_mrfd;
 int is_initialized = 0;
 
 int sharp_init(void) {
@@ -424,16 +426,23 @@ void sharp_finalize(void) {
 #define FIND_LEN(ptr, len, page_size) ((((char*) ptr - FIND_BASE(ptr, page_size) + len - 1) / \
                                         page_size + 1) * page_size)
 
-
+struct myshare_info_t {
+    xpmem_segid_t heap_seg;
+    size_t heap_len;
+    size_t heap_off;
+    uint64_t remote_addr; 
+};
 
 void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hints)
 {
     sharp_allocator_info_params_t info_obj;
     sharp_hint_t sharp_hints;
     sharp_allocator_obj_t * a_obj;
+    struct myshare_info_t part_info;
+    struct myshare_info_t * part_info_array;
     void * ret = NULL;
-    struct share_info_t part_info;
-    struct share_info_t * part_info_array;
+    int err;
+    uint64_t flags = 0;
     
     if (!is_initialized) {
         sharp_init();
@@ -462,9 +471,6 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
     ret = sharp_allocator_alloc(a_obj, size);
     printf("%d: ret: %p\n", shmem_internal_my_pe, ret);
 
-    part_info_array = (struct share_info_t *) malloc(sizeof(struct share_info_t) * shmem_internal_num_pes); 
-
-
     // need to wire up here
     #ifdef USE_XPMEM
     // xpmem_make
@@ -472,6 +478,7 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
     long page_size = sysconf(_SC_PAGESIZE);
     char *base;
     size_t len;
+
     base = FIND_BASE(ret, page_size);
     len = FIND_LEN(ret, size, page_size);
 
@@ -484,42 +491,40 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
     part_info.heap_len = len;
 
     printf("[%d] my segment is %lx\n", i, part_info.heap_seg);
-   
+    #endif /* USE_XPMEM */
+
+    err = fi_mr_reg(shmem_transport_ofi_domainfd, ret,
+            size,
+            FI_REMOTE_READ | FI_REMOTE_WRITE, 0, 
+            (unsigned long long) nr_used_spaces, flags,
+            &shmem_transport_ofi_target_heap_mrfd[nr_used_spaces-1], 
+            NULL);
+    OFI_CHECK_RETURN_STR(err, "target memory (heap) registration failed");
+    part_info.remote_addr = 
+        fi_mr_key(shmem_transport_ofi_target_heap_mrfd[nr_used_spaces-1]);
+  
+
     // use an MPI All gather here... 
-
+    part_info_array = (struct myshare_info_t *) malloc(sizeof(struct myshare_info_t) * shmem_internal_num_pes); 
+    
     MPI_Allgather(&part_info, sizeof(part_info), MPI_CHAR, part_info_array, sizeof(part_info), MPI_CHAR, MPI_COMM_WORLD);
-/*    char name[32];
-    int err;
-    int peer_num;
-    sprintf(name, "xpmem-segid%lu", nr_used_spaces);
-    err = shmem_runtime_put (name, &part_info, sizeof(struct share_info_t));
-    if (0 != err) { 
-        RETURN_ERROR_MSG("runtime_put failed: %d\n", err);
-        return NULL;
-    } else {
-        printf("runtime put passed: %s\n", name);
-    }
 
-    shmem_barrier_all();*/
     // exchange
     for (i = 0; i < shmem_internal_num_pes; i++) {
         int peer_num = shmem_runtime_get_node_rank(i);
-        struct xpmem_addr addr;
-        if (-1 == peer_num)
-            continue;
+        int err = 0;
+//        if (-1 == peer_num) {
+//            continue;
 
         if (shmem_internal_my_pe == i) {
             shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces-1] =
                 ret;
         } else {
-            /*err = shmem_runtime_get(i, name, &part_info, sizeof(struct share_info_t));
-            if (0 != err) {
-                RETURN_ERROR_MSG("runtime_get failed: %d\n", err);
-                return NULL;
-            }*/
-
             memcpy(&part_info, &part_info_array[i], sizeof(part_info));
 
+            #ifdef USE_XPMEM
+            struct xpmem_addr addr;
+            
             printf("[%d] %d's heap_seg is %lx\n", shmem_internal_my_pe, i, part_info.heap_seg);
 
             shmem_transport_xpmem_peers[peer_num].heap_apid[nr_used_spaces-1] =
@@ -539,15 +544,17 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
             printf("[%d] peer %d addr: 0x%lx\n", shmem_internal_my_pe, i, shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces-1]); 
             shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces-1] =
                 (char *) shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces-1] + part_info.heap_off;
+            #endif /* USE_XPMEM */
+
         }
     }
     // xpmem_get
     // xpmem_attach
+//    #endif
     spaces[nr_used_spaces].base = ret;
     spaces[nr_used_spaces].size = size;
     nr_used_spaces++;
 
-    #endif
 
     return ret;
 }

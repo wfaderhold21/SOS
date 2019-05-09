@@ -66,13 +66,13 @@ struct fid_cntr*                shmem_transport_ofi_target_cntrfd;
 #ifdef ENABLE_REMOTE_VIRTUAL_ADDRESSING
 struct fid_mr*                  shmem_transport_ofi_target_mrfd;
 #else  /* !ENABLE_REMOTE_VIRTUAL_ADDRESSING */
-struct fid_mr*                  shmem_transport_ofi_target_heap_mrfd;
+struct fid_mr**                  shmem_transport_ofi_target_heap_mrfd;
 struct fid_mr*                  shmem_transport_ofi_target_data_mrfd;
 #endif
 #else  /* !ENABLE_MR_SCALABLE */
-struct fid_mr*                  shmem_transport_ofi_target_heap_mrfd;
+struct fid_mr**                  shmem_transport_ofi_target_heap_mrfd;
 struct fid_mr*                  shmem_transport_ofi_target_data_mrfd;
-uint64_t*                       shmem_transport_ofi_target_heap_keys;
+uint64_t**                       shmem_transport_ofi_target_heap_keys;
 uint64_t*                       shmem_transport_ofi_target_data_keys;
 #ifndef ENABLE_REMOTE_VIRTUAL_ADDRESSING
 uint8_t**                       shmem_transport_ofi_target_heap_addrs;
@@ -593,6 +593,9 @@ int allocate_recv_cntr_mr(void)
 {
     int ret = 0;
     uint64_t flags = 0;
+    //shmem
+    shmem_transport_ofi_target_heap_mrfd = (struct fid_mr **) malloc(sizeof(struct fid_mr *) * 4); 
+
 
     /* ------------------------------------ */
     /* POST enable resources for to EP      */
@@ -649,7 +652,7 @@ int allocate_recv_cntr_mr(void)
     ret = fi_mr_reg(shmem_transport_ofi_domainfd, shmem_internal_heap_base,
                     shmem_internal_heap_length,
                     FI_REMOTE_READ | FI_REMOTE_WRITE, 0, 1ULL, flags,
-                    &shmem_transport_ofi_target_heap_mrfd, NULL);
+                    &shmem_transport_ofi_target_heap_mrfd[0], NULL);
     OFI_CHECK_RETURN_STR(ret, "target memory (heap) registration failed");
 
     ret = fi_mr_reg(shmem_transport_ofi_domainfd, shmem_internal_data_base,
@@ -660,7 +663,7 @@ int allocate_recv_cntr_mr(void)
 
     /* Bind counter with target memory region for incoming messages */
 #if ENABLE_TARGET_CNTR
-    ret = fi_mr_bind(shmem_transport_ofi_target_heap_mrfd,
+    ret = fi_mr_bind(shmem_transport_ofi_target_heap_mrfd[0],
                      &shmem_transport_ofi_target_cntrfd->fid,
                      FI_REMOTE_WRITE);
     OFI_CHECK_RETURN_STR(ret, "target CNTR binding to heap MR failed");
@@ -675,7 +678,7 @@ int allocate_recv_cntr_mr(void)
         ret = fi_mr_enable(shmem_transport_ofi_target_data_mrfd);
         OFI_CHECK_RETURN_STR(ret, "target data MR enable failed");
 
-        ret = fi_mr_enable(shmem_transport_ofi_target_heap_mrfd);
+        ret = fi_mr_enable(shmem_transport_ofi_target_heap_mrfd[0]);
         OFI_CHECK_RETURN_STR(ret, "target heap MR enable failed");
     }
 #endif /* ENABLE_MR_RMA_EVENT */
@@ -693,7 +696,7 @@ int publish_mr_info(void)
         int err;
         uint64_t heap_key, data_key;
 
-        heap_key = fi_mr_key(shmem_transport_ofi_target_heap_mrfd);
+        heap_key = fi_mr_key(shmem_transport_ofi_target_heap_mrfd[0]);
         data_key = fi_mr_key(shmem_transport_ofi_target_data_mrfd);
 
         err = shmem_runtime_put("fi_heap_key", &heap_key, sizeof(uint64_t));
@@ -737,7 +740,10 @@ int populate_mr_tables(void)
     {
         int i, err;
 
-        shmem_transport_ofi_target_heap_keys = malloc(sizeof(uint64_t) * shmem_internal_num_pes);
+        shmem_transport_ofi_target_heap_keys = (uint64_t **) malloc(sizeof(uint64_t *) * 4);
+        for (i = 0; i < 4; i++) {
+            shmem_transport_ofi_target_heap_keys = (uint64_t *) malloc(sizeof(uint64_t) * shmem_internal_num_pes);
+        }
         if (NULL == shmem_transport_ofi_target_heap_keys) {
             RAISE_WARN_STR("Out of memory allocating heap keytable");
             return 1;
@@ -752,7 +758,7 @@ int populate_mr_tables(void)
         /* Called after the upper layer performs the runtime exchange */
         for (i = 0; i < shmem_internal_num_pes; i++) {
             err = shmem_runtime_get(i, "fi_heap_key",
-                                    &shmem_transport_ofi_target_heap_keys[i],
+                                    &shmem_transport_ofi_target_heap_keys[0][i],
                                     sizeof(uint64_t));
             if (err) {
                 RAISE_WARN_STR("Get of heap key from runtime KVS failed");
@@ -1682,6 +1688,7 @@ int shmem_transport_fini(void)
     int ret;
     shmem_transport_ofi_stx_kvs_t* e;
     int stx_len = 0;
+    int i = 0;
 
     /* Free all shareable contexts.  This performs a quiet on each context,
      * ensuring all operations have completed before proceeding with shutdown. */
@@ -1731,8 +1738,10 @@ int shmem_transport_fini(void)
     ret = fi_close(&shmem_transport_ofi_target_mrfd->fid);
     OFI_CHECK_ERROR_MSG(ret, "Target MR close failed (%s)\n", fi_strerror(errno));
 #else
-    ret = fi_close(&shmem_transport_ofi_target_heap_mrfd->fid);
-    OFI_CHECK_ERROR_MSG(ret, "Target heap MR close failed (%s)\n", fi_strerror(errno));
+    for (i = 0; i < nr_used_spaces-1; i++) {
+        ret = fi_close(&shmem_transport_ofi_target_heap_mrfd[i]->fid);
+        OFI_CHECK_ERROR_MSG(ret, "Target heap MR close failed (%s)\n", fi_strerror(errno));
+    }
 
     ret = fi_close(&shmem_transport_ofi_target_data_mrfd->fid);
     OFI_CHECK_ERROR_MSG(ret, "Target data MR close failed (%s)\n", fi_strerror(errno));
