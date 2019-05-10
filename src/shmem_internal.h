@@ -47,6 +47,7 @@ extern unsigned int shmem_internal_rand_seed;
 struct memory_spaces {
     uint64_t base;
     size_t   size;
+    uint64_t key;
 };
 
 extern struct memory_spaces * spaces;

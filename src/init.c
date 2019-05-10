@@ -442,8 +442,10 @@ shmem_internal_init(int tl_requested, int *tl_provided)
     spaces = (struct memory_spaces *)malloc(sizeof(struct memory_spaces) * nr_spaces);
     spaces[0].base = (uint64_t) shmem_internal_data_base;
     spaces[0].size = shmem_internal_data_length;
+    spaces[0].key = 0;
     spaces[1].base = (uint64_t) shmem_internal_heap_base;
     spaces[1].size = shmem_internal_heap_length;
+    spaces[1].key = 1;
     nr_used_spaces = 2;
 
     /* finish up */
