@@ -113,8 +113,25 @@ extern pthread_mutex_t                  shmem_transport_ofi_progress_lock;
             return ret;                                                         \
         }                                                                       \
     } while (0)
-
-
+#if 1
+static inline void shmem_transport_ofi_get_mr(const void * addr, int dest_pe,
+                                              uint8_t **mr_addr, uint64_t * key)
+{
+    int i = 0;
+    
+    for (i = 0; i < nr_used_spaces; i++) {
+        if ((char *)addr >= (char *)spaces[i].base && (char *)addr < (char *)(spaces[i].base + spaces[i].size)) {
+//            size_t offset = addr - spaces[i].base;
+            *mr_addr = (uint8_t *)((uint8_t *)addr - (uint8_t *)spaces[i].base);
+            *key = i;
+            return;
+        }
+    }
+    *mr_addr = NULL;
+    *key = 0;
+    //RAISE_ERROR_MSG("address (%p) outside of symmetric areas\n", addr);
+}
+#else
 #ifdef ENABLE_MR_SCALABLE
 static inline
 void shmem_transport_ofi_get_mr(const void *addr, int dest_pe,
@@ -160,6 +177,7 @@ void shmem_transport_ofi_get_mr(const void *addr, int dest_pe,
 
     else if ((void*) addr >= shmem_internal_heap_base &&
              (uint8_t*) addr < (uint8_t*) shmem_internal_heap_base + shmem_internal_heap_length) {
+        printf("I WAS CALLED!!!!\n");
         *key = shmem_transport_ofi_target_heap_keys[dest_pe];
 #ifdef ENABLE_REMOTE_VIRTUAL_ADDRESSING
         *mr_addr = (uint8_t *) addr;
@@ -176,7 +194,7 @@ void shmem_transport_ofi_get_mr(const void *addr, int dest_pe,
     }
 }
 #endif
-
+#endif
 typedef enum fi_datatype shm_internal_datatype_t;
 typedef enum fi_op       shm_internal_op_t;
 

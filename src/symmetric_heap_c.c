@@ -142,6 +142,7 @@ shmem_internal_get_next(intptr_t incr)
         orig = (void*) -1;
     }
 
+
     return orig;
 }
 
@@ -288,6 +289,7 @@ shmem_malloc(size_t size)
 
     shmem_internal_barrier_all();
 
+    printf("malloc return addr: %p\n", ret);
     return ret;
 }
 
@@ -411,6 +413,7 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemalign(size_t alignment, size_t size)
 
 extern struct fid_domain * shmem_transport_ofi_domainfd;
 extern struct fid_mr ** shmem_transport_ofi_target_heap_mrfd;
+//extern uint64_t ** shmem_transport_ofi_target_heap_keys;
 int is_initialized = 0;
 
 int sharp_init(void) {
@@ -500,6 +503,14 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
             &shmem_transport_ofi_target_heap_mrfd[nr_used_spaces-1], 
             NULL);
     OFI_CHECK_RETURN_STR(err, "target memory (heap) registration failed");
+#ifdef ENABLE_MR_RMA_EVENT
+    if (shmem_transport_ofi_mr_rma_event) {
+        ret = fi_mr_enable(shmem_transport_ofi_target_heap_mrfd[nr_used_spaces-1]);
+        OFI_CHECK_RETURN_STR(ret, "target heap MR enable failed");
+    }
+#endif /* ENABLE_MR_RMA_EVENT */
+
+
     part_info.remote_addr = 
         fi_mr_key(shmem_transport_ofi_target_heap_mrfd[nr_used_spaces-1]);
   
@@ -519,6 +530,8 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
         if (shmem_internal_my_pe == i) {
             shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces-1] =
                 ret;
+            //shmem_transport_ofi_target_heap_keys[nr_used_spaces-1][i] = part_info.remote_addr;
+
         } else {
             memcpy(&part_info, &part_info_array[i], sizeof(part_info));
 
@@ -546,12 +559,15 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
                 (char *) shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces-1] + part_info.heap_off;
             #endif /* USE_XPMEM */
 
+            //shmem_transport_ofi_target_heap_keys[nr_used_spaces-1][i] = part_info.remote_addr;
+            
+
         }
     }
     // xpmem_get
     // xpmem_attach
 //    #endif
-    spaces[nr_used_spaces].base = ret;
+    spaces[nr_used_spaces].base = (uint64_t) ret;
     spaces[nr_used_spaces].size = size;
     nr_used_spaces++;
 

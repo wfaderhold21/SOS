@@ -114,7 +114,7 @@ shmem_transport_xpmem_startup(void)
                                             (void **) malloc(sizeof(void *)*4);
         
         for (j = 0; j < 4; j++) {
-            shmem_transport_xpmem_peers[i].heap_apid[j] = NULL;
+            shmem_transport_xpmem_peers[i].heap_apid[j] = 0;
             shmem_transport_xpmem_peers[i].heap_attach_ptr[j] = NULL;
             shmem_transport_xpmem_peers[i].heap_ptr[j] = NULL;
         }

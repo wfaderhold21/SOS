@@ -54,7 +54,7 @@ extern struct shmem_transport_xpmem_peer_info_t *shmem_transport_xpmem_peers;
         } else if (((void*) target > shmem_internal_heap_base) &&       \
                    ((char*) target < (char*) shmem_internal_heap_base + shmem_internal_heap_length)) { \
             ptr = (char*) target - (char*) shmem_internal_heap_base +   \
-                (char*) shmem_transport_xpmem_peers[rank].heap_ptr;     \
+                (char*) shmem_transport_xpmem_peers[rank].heap_ptr[0];     \
         } else {                                                        \
             ptr = NULL;                                                 \
         }                                                               \
@@ -84,7 +84,7 @@ static inline void * _remote_access(const uint64_t target, int pe)
     void * addr = NULL;
 
     for (i = 0; i < nr_used_spaces; i++) {
-        if (target >= spaces[i].base && target < (spaces[i].base + spaces[i].size)) {
+        if ((target >= spaces[i].base) && (target < (spaces[i].base + spaces[i].size))) {
             size_t offset = target - spaces[i].base;
             if (i) {
                 addr = (void *) (shmem_transport_xpmem_peers[pe].heap_ptr[i-1] + offset);
@@ -94,6 +94,7 @@ static inline void * _remote_access(const uint64_t target, int pe)
             break;
         }
     }
+    printf("returning addr: %p\n");
     return addr;
 }
 
@@ -123,7 +124,7 @@ shmem_transport_xpmem_put(void *target, const void *source, size_t len,
     void *remote_ptr;
 
     remote_ptr = _remote_access((uint64_t) target, pe);
-//    XPMEM_GET_REMOTE_ACCESS(target, noderank, remote_ptr);
+    //XPMEM_GET_REMOTE_ACCESS(target, noderank, remote_ptr);
 #ifdef ENABLE_ERROR_CHECKING
     if (NULL == remote_ptr) {
         RAISE_ERROR_MSG("target (0x%"PRIXPTR") outside of symmetric areas\n",
