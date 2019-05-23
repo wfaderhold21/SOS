@@ -536,6 +536,7 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #include <inttypes.h>
 #include "shmem_internal.h"
 
+#define MSPACES 1
 #define USE_DL_PREFIX 1
 #define HAVE_MORECORE 1
 #define MORECORE shmem_internal_get_next
