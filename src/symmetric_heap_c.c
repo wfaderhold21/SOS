@@ -430,22 +430,45 @@ void sharp_finalize(void) {
                                         page_size + 1) * page_size)
 
 struct myshare_info_t {
+    #ifdef USE_XPMEM
     xpmem_segid_t heap_seg;
+    #endif
     size_t heap_len;
     size_t heap_off;
     uint64_t remote_addr; 
 };
 
+typedef void * mspace;
+mspace create_mspace_with_base(void* base, size_t capacity, int locked);
+void* mspace_malloc(mspace msp, size_t bytes);
+
+struct alloc_obj_cache_t {
+    sharp_allocator_obj_t * obj;
+    sharp_hint_t hints;
+    mspace * myspace;
+};
+
+struct alloc_obj_cache_t alloc_cache[10] = {
+    {NULL, 0, NULL}, {NULL, 0, NULL}, {NULL, 0, NULL}, {NULL, 0, NULL}, {NULL, 0, NULL}, 
+    {NULL, 0, NULL}, {NULL, 0, NULL}, {NULL, 0, NULL}, {NULL, 0, NULL}, {NULL, 0, NULL}};
+
+int cache_size = 0;
+
 void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hints)
 {
     sharp_allocator_info_params_t info_obj;
-    sharp_hint_t sharp_hints;
+    sharp_hint_t sharp_hints = 0;
     sharp_allocator_obj_t * a_obj;
     struct myshare_info_t part_info;
     struct myshare_info_t * part_info_array;
     void * ret = NULL;
     int err;
     uint64_t flags = 0;
+    int i;
+    long page_size = sysconf(_SC_PAGESIZE);
+    char *base;
+    size_t len;
+
     
     if (!is_initialized) {
         sharp_init();
@@ -467,34 +490,59 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
     if (hints == SHMEM_HINT_NEAR_NIC_MEM) {
         sharp_hints |= SHARP_HINT_LATENCY_OPT;
     }
-    info_obj.allocator_hints = sharp_hints;
-    info_obj.allocator_constraints = 0;
 
-    a_obj = sharp_init_allocator_obj(&info_obj);
-    ret = sharp_allocator_alloc(a_obj, size);
+    char found = 0;
+    for (i = 0; i < cache_size; i++) {
+        if (sharp_hints == alloc_cache[i].hints /*&& alloc_cache[i].myspace != NULL*/) {
+            //cache hit
+            ret = mspace_malloc(alloc_cache[i].myspace, size);
+            printf("found, breaking, i: %d, cache_size: %d\n", i, cache_size);
+            found = 1;
+            return ret;
+        }
+    }
+    if (found == 0) {
+        //cache miss
+        info_obj.allocator_hints = sharp_hints;
+        info_obj.allocator_constraints = 0;
+
+        a_obj = sharp_init_allocator_obj(&info_obj);
+        ret = sharp_allocator_alloc(a_obj, shmem_internal_params.SYMMETRIC_SIZE + (1<<20));
+
+        // add to cache
+        alloc_cache[cache_size].obj = a_obj;
+        alloc_cache[cache_size].hints = sharp_hints;
+        alloc_cache[cache_size].myspace = create_mspace_with_base(ret, shmem_internal_params.SYMMETRIC_SIZE + (1<<20), 1);
+        ret = ret + (1<<20);
+        printf("added at cache %d\n", cache_size);
+        printf("\tobj: %p\n", alloc_cache[cache_size].obj);
+        printf("\thints: %d\n", alloc_cache[cache_size].hints);
+        printf("\tmyspace: %p\n", alloc_cache[cache_size].myspace);
+//        printf("mycache.myspace: %p added at cache %d\n", alloc_cache[cache_size].myspace, cache_size);
+
+        cache_size++;
+    }
     printf("%d: ret: %p\n", shmem_internal_my_pe, ret);
 
     // need to wire up here
     #ifdef USE_XPMEM
     // xpmem_make
-    int i = shmem_internal_my_pe;
-    long page_size = sysconf(_SC_PAGESIZE);
-    char *base;
-    size_t len;
-
-    base = FIND_BASE(ret, page_size);
-    len = FIND_LEN(ret, size, page_size);
+    i = shmem_internal_my_pe;
 
     part_info.heap_seg = xpmem_make(base, len, XPMEM_PERMIT_MODE, (void *)0666);
     if (part_info.heap_seg == -1) {
         printf("make failed\n");
         return NULL;
     }
+    printf("[%d] my segment is %lx\n", i, part_info.heap_seg);
+
+    #endif /* USE_XPMEM */
+
+    base = FIND_BASE(ret, page_size);
+    len = FIND_LEN(ret, size, page_size);
+
     part_info.heap_off = (char *)ret - base;
     part_info.heap_len = len;
-
-    printf("[%d] my segment is %lx\n", i, part_info.heap_seg);
-    #endif /* USE_XPMEM */
 
     err = fi_mr_reg(shmem_transport_ofi_domainfd, ret,
             size,
@@ -522,15 +570,19 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
 
     // exchange
     for (i = 0; i < shmem_internal_num_pes; i++) {
+        #ifdef USE_XPMEM
         int peer_num = shmem_runtime_get_node_rank(i);
+        #endif
         int err = 0;
 //        if (-1 == peer_num) {
 //            continue;
 
         if (shmem_internal_my_pe == i) {
+            #ifdef USE_XPMEM
             shmem_transport_xpmem_peers[peer_num].heap_ptr[nr_used_spaces-1] =
                 ret;
-            //shmem_transport_ofi_target_heap_keys[nr_used_spaces-1][i] = part_info.remote_addr;
+            #endif
+//            shmem_transport_ofi_target_heap_keys[nr_used_spaces-1][i] = part_info.remote_addr;
 
         } else {
             memcpy(&part_info, &part_info_array[i], sizeof(part_info));
@@ -559,7 +611,7 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
                 (char *) shmem_transport_xpmem_peers[peer_num].heap_attach_ptr[nr_used_spaces-1] + part_info.heap_off;
             #endif /* USE_XPMEM */
 
-            //shmem_transport_ofi_target_heap_keys[nr_used_spaces-1][i] = part_info.remote_addr;
+  //          shmem_transport_ofi_target_heap_keys[nr_used_spaces-1][i] = part_info.remote_addr;
             
 
         }

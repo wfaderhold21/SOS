@@ -260,6 +260,7 @@ shmem_runtime_put(char *key, void *value, size_t valuelen)
         return 1;
     }
 
+    //printf("PUT: %s\n", key);
     return 0;
 }
 
@@ -270,8 +271,11 @@ shmem_runtime_get(int pe, char *key, void *value, size_t valuelen)
     for (int i = pe * kv_length; i < kv_length * size; i+= 2) {
         if (strcmp(kv_index(kv_store_all, i), key) == 0) {
             memcpy(value, kv_index(kv_store_all, i+1), valuelen);
+            //printf("GET match: %s\n", key);
             flag = 1;
             break;
+        } else {
+            //printf("GET failed: %s, %s\n", kv_index(kv_store_all, i+1), key);
         }
     }
     if (0 == flag) {
