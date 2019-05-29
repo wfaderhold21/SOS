@@ -524,6 +524,12 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
     }
     printf("%d: ret: %p\n", shmem_internal_my_pe, ret);
 
+    base = FIND_BASE(ret, page_size);
+    len = FIND_LEN(ret, size, page_size);
+
+    part_info.heap_off = (char *)ret - base;
+    part_info.heap_len = len;
+
     // need to wire up here
     #ifdef USE_XPMEM
     // xpmem_make
@@ -538,11 +544,6 @@ void SHMEM_FUNCTION_ATTRIBUTES * shmemx_malloc_with_hints(size_t size, long hint
 
     #endif /* USE_XPMEM */
 
-    base = FIND_BASE(ret, page_size);
-    len = FIND_LEN(ret, size, page_size);
-
-    part_info.heap_off = (char *)ret - base;
-    part_info.heap_len = len;
 
     err = fi_mr_reg(shmem_transport_ofi_domainfd, ret,
             size,
